@@ -86,15 +86,21 @@ export class DashboardView extends ItemView {
 			const correctBtn = actions.createEl('button', { text: '不对，不是这样' });
 			correctBtn.style.cssText = `background:transparent;border:1px solid ${t.border};color:${t.textSecondary};padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;`;
 			correctBtn.onclick = () => {
+				q.acknowledged = true;
 				const wsAny = this.app.workspace as unknown as { trigger: (name: string, ...args: unknown[]) => void };
+				wsAny.trigger('mirror:save-data');
 				wsAny.trigger('mirror:open-correction', { original: q.question, dimension: q.relatedDimension });
+				this.render();
 			};
 
 			const chatBtn = actions.createEl('button', { text: '展开聊聊' });
 			chatBtn.style.cssText = `background:${t.warmOrange};color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;`;
 			chatBtn.onclick = () => {
-				const wsAny2 = this.app.workspace as unknown as { trigger: (name: string, ...args: unknown[]) => void };
-				wsAny2.trigger('mirror:open-chat', q);
+				q.acknowledged = true;
+				const wsAny = this.app.workspace as unknown as { trigger: (name: string, ...args: unknown[]) => void };
+				wsAny.trigger('mirror:save-data');
+				wsAny.trigger('mirror:open-chat', q);
+				this.render();
 			};
 		} else {
 			banner.createDiv({ text: '暂时没有新的洞察——继续写日记，画像会慢慢认识你。' })

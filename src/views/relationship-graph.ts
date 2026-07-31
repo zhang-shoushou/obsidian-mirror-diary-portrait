@@ -11,7 +11,12 @@ export class RelationshipGraphView extends ItemView {
 	data: PluginData;
 	private panelEl: HTMLElement | null = null;
 	private canvasEl: HTMLElement | null = null;
+	private nodesContainer: HTMLElement | null = null;
 	private selectedName: string | null = null;
+	private scale = 1;
+	private panX = 0;
+	private panY = 0;
+	private initialDistance = 0;
 
 	constructor(leaf: WorkspaceLeaf, data: PluginData) {
 		super(leaf);
@@ -31,7 +36,7 @@ export class RelationshipGraphView extends ItemView {
 		const person = this.data.relationshipMap.people[name];
 		if (person) {
 			this.selectedName = name;
-			if (this.panelEl) this.showPersonDetail(person);
+			this.showPersonDetail(person);
 		}
 	}
 
@@ -39,6 +44,63 @@ export class RelationshipGraphView extends ItemView {
 
 	private isMobile(): boolean {
 		return activeDocument.body.clientWidth < 600;
+	}
+
+	private applyTransform(): void {
+		if (this.nodesContainer) {
+			this.nodesContainer.style.transform = `scale(${this.scale}) translate(${this.panX}px, ${this.panY}px)`;
+		}
+	}
+
+	private zoomIn(): void {
+		this.scale = Math.min(3, this.scale + 0.15);
+		this.applyTransform();
+	}
+
+	private zoomOut(): void {
+		this.scale = Math.max(0.2, this.scale - 0.15);
+		this.applyTransform();
+	}
+
+	private zoomReset(): void {
+		const people = Object.values(this.data.relationshipMap.people);
+		this.scale = Math.max(0.3, Math.min(1, 500 / (people.length * 60)));
+		this.panX = 0;
+		this.panY = 0;
+		this.applyTransform();
+	}
+
+	private setupDragPan(): void {
+		if (!this.canvasEl) return;
+		let dragging = false;
+		let sx = 0, sy = 0;
+
+		this.canvasEl.style.cursor = 'grab';
+
+		this.canvasEl.addEventListener('mousedown', (e: MouseEvent) => {
+			if (e.button === 0) {
+				dragging = true;
+				sx = e.clientX - this.panX;
+				sy = e.clientY - this.panY;
+				this.canvasEl!.style.cursor = 'grabbing';
+				e.preventDefault();
+			}
+		});
+
+		this.canvasEl.addEventListener('mousemove', (e: MouseEvent) => {
+			if (dragging) {
+				this.panX = e.clientX - sx;
+				this.panY = e.clientY - sy;
+				this.applyTransform();
+			}
+		});
+
+		const stop = () => {
+			dragging = false;
+			if (this.canvasEl) this.canvasEl.style.cursor = 'grab';
+		};
+		this.canvasEl.addEventListener('mouseup', stop);
+		this.canvasEl.addEventListener('mouseleave', stop);
 	}
 
 	private render(): void {
@@ -49,51 +111,144 @@ export class RelationshipGraphView extends ItemView {
 		container.style.cssText = `display:flex;height:100%;background:${t.bgPrimary};position:relative;`;
 
 		this.canvasEl = container.createDiv({ cls: 'mirror-graph-canvas' });
-		this.canvasEl.style.cssText = `flex:1;overflow-y:auto;padding:40px;position:relative;`;
+		this.canvasEl.style.cssText = `flex:1;overflow:hidden;position:relative;`;
+
+		// 缩放工具栏
+		const toolbar = this.canvasEl.createDiv();
+		toolbar.style.cssText = `position:absolute;bottom:16px;right:16px;display:flex;gap:4px;z-index:150;`;
+		const btnStyle = `width:32px;height:32px;border-radius:8px;border:1px solid ${t.border};background:${t.bgCard};color:${t.textPrimary};font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;`;
+
+		const zb = toolbar.createEl('button', { text: '+' });
+		zb.style.cssText = btnStyle;
+		zb.onclick = () => this.zoomIn();
+
+		const zob = toolbar.createEl('button', { text: '−' });
+		zob.style.cssText = btnStyle;
+		zob.onclick = () => this.zoomOut();
+
+		const rb = toolbar.createEl('button', { text: '⟲' });
+		rb.style.cssText = `${btnStyle}font-size:14px;`;
+		rb.setAttribute('title', '重置缩放');
+		rb.onclick = () => this.zoomReset();
+
+		// 内层节点容器
+		this.nodesContainer = this.canvasEl.createDiv({ cls: 'mirror-graph-nodes' });
+		this.nodesContainer.style.cssText = `position:absolute;inset:0;transform-origin:center center;transition:transform 0.2s ease;`;
+
+		// 滚轮缩放
+		this.canvasEl.addEventListener('wheel', (e: WheelEvent) => {
+			e.preventDefault();
+			if (e.deltaY < 0) this.zoomIn();
+			else this.zoomOut();
+		}, { passive: false });
+
+		// 拖拽平移
+		this.setupDragPan();
 
 		if (this.isMobile()) {
 			this.panelEl = null;
+			this.setupMobileZoom();
 		} else {
 			this.panelEl = container.createDiv({ cls: 'mirror-graph-panel' });
 			this.panelEl.style.cssText = `width:0;overflow:hidden;background:${t.bgCard};border-left:1px solid ${t.border};transition:width 0.25s ease;`;
 		}
+
 		this.renderNodes(t);
 	}
 
-	private renderNodes(t: ReturnType<typeof getTheme>): void {
+	private setupMobileZoom(): void {
 		if (!this.canvasEl) return;
+		this.canvasEl.addEventListener('touchstart', (e: TouchEvent) => {
+			if (e.touches.length === 2) {
+				this.initialDistance = Math.hypot(
+					e.touches[0]!.clientX - e.touches[1]!.clientX,
+					e.touches[0]!.clientY - e.touches[1]!.clientY,
+				);
+			}
+		}, { passive: true });
+		this.canvasEl.addEventListener('touchmove', (e: TouchEvent) => {
+			if (e.touches.length === 2) {
+				const d = Math.hypot(
+					e.touches[0]!.clientX - e.touches[1]!.clientX,
+					e.touches[0]!.clientY - e.touches[1]!.clientY,
+				);
+				if (this.initialDistance > 0 && d > 0) {
+					this.scale = Math.max(0.2, Math.min(3, this.scale * (d / this.initialDistance)));
+					this.applyTransform();
+				}
+			}
+		}, { passive: true });
+		this.canvasEl.addEventListener('touchend', () => { this.initialDistance = 0; }, { passive: true });
+	}
+
+	private renderNodes(t: ReturnType<typeof getTheme>): void {
+		if (!this.nodesContainer) return;
+		this.nodesContainer.empty();
+
 		const people = Object.values(this.data.relationshipMap.people);
 		if (people.length === 0) {
-			this.canvasEl.createDiv({ text: '还没有足够的人际关系数据——继续写日记吧。' })
-				.style.cssText = `color:${t.textSecondary};font-size:14px;text-align:center;padding-top:80px;`;
+			this.nodesContainer.style.cssText = `position:absolute;inset:0;display:flex;align-items:center;justify-content:center;`;
+			this.nodesContainer.createDiv({ text: '还没有足够的人际关系数据——继续写日记吧。' })
+				.style.cssText = `color:${t.textSecondary};font-size:14px;text-align:center;`;
 			return;
 		}
+
+		this.zoomReset();
 
 		const sorted = [...people].sort((a, b) => b.totalMentions - a.totalMentions);
 		const maxMentions = sorted[0]?.totalMentions || 1;
 		const angleStep = (Math.PI * 2) / people.length;
 
+		// 预先存所有坐标用于画连线
+		const positions: Array<{ x: number; y: number; color: string; width: number }> = [];
+		const cx = 50, cy = 50; // 中心点 "我"
+
 		for (let i = 0; i < sorted.length; i++) {
 			const person = sorted[i]!;
-			const r = person.emotionalDistance * 180 + 30;
+			const r = person.emotionalDistance * 150 + 25;
 			const angle = i * angleStep;
-			const x = 50 + r * Math.cos(angle);
-			const y = 50 + r * Math.sin(angle);
+			const x = cx + r * Math.cos(angle);
+			const y = cy + r * Math.sin(angle);
+			const color = relationColor(person.emotionalTone, t);
+			const width = Math.max(1, 3 - person.emotionalDistance * 2);
+
+			positions.push({ x, y, color, width });
+		}
+
+		// 画连线（CSS div 线段，从中心连到每个节点）
+		for (const pos of positions) {
+			const dx = pos.x - cx;
+			const dy = pos.y - cy;
+			const len = Math.sqrt(dx * dx + dy * dy);
+			const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+			const lineW = Math.max(1, pos.width);
+
+			const line = this.nodesContainer.createDiv();
+			line.style.cssText = `position:absolute;left:${cx}%;top:${cy}%;width:${len}%;height:${lineW}px;background:${pos.color};opacity:0.35;transform-origin:0 50%;transform:rotate(${angle}deg);pointer-events:none;z-index:0;border-radius:1px;`;
+			if (pos.width < 2) {
+				line.style.background = `repeating-linear-gradient(90deg, ${pos.color}44 0px, ${pos.color}44 4px, transparent 4px, transparent 8px)`;
+			}
+		}
+
+		// 画节点
+		for (let i = 0; i < sorted.length; i++) {
+			const person = sorted[i]!;
+			const pos = positions[i]!;
 			const size = Math.max(40, Math.min(72, 16 + (person.totalMentions / maxMentions) * 40));
 			const color = relationColor(person.emotionalTone, t);
-			const zIndex = Math.round(person.totalMentions);
 
-			const node = this.canvasEl.createDiv({ cls: 'mirror-graph-node' });
-			node.style.cssText = `position:absolute;left:${x}%;top:${y}%;width:${size}px;height:${size}px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;color:#fff;font-size:${Math.max(11, size/4)}px;font-weight:600;cursor:pointer;transition:transform 0.2s;transform:translate(-50%,-50%);box-shadow:0 2px 12px ${color}44;z-index:${zIndex};`;
+			const node = this.nodesContainer.createDiv({ cls: 'mirror-graph-node' });
+			node.style.cssText = `position:absolute;left:${pos.x}%;top:${pos.y}%;width:${size}px;height:${size}px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;color:#fff;font-size:${Math.max(11, size/4)}px;font-weight:600;cursor:pointer;transform:translate(-50%,-50%);box-shadow:0 2px 12px ${color}44;z-index:${Math.round(person.totalMentions) + 10};`;
 			node.textContent = person.name.slice(0, 3);
-			node.setAttribute('title', `${person.name}\n提及${person.totalMentions}次`);
-			node.onclick = () => this.showPersonDetail(person);
-			node.onmouseenter = () => { node.style.transform = 'translate(-50%,-50%) scale(1.15)'; };
+			node.setAttribute('title', `${person.name}\n提及${person.totalMentions}次 · ${EMOTION_LABELS[person.emotionalTone]}`);
+			node.onclick = (e) => { e.stopPropagation(); this.showPersonDetail(person); };
+			node.onmouseenter = () => { node.style.transition = 'transform 0.2s'; node.style.transform = 'translate(-50%,-50%) scale(1.15)'; };
 			node.onmouseleave = () => { node.style.transform = 'translate(-50%,-50%) scale(1)'; };
 		}
 
-		const selfNode = this.canvasEl.createDiv({ cls: 'mirror-graph-self', text: '我' });
-		selfNode.style.cssText = `position:absolute;left:50%;top:50%;width:50px;height:50px;border-radius:50%;background:${t.warmOrange};display:flex;align-items:center;justify-content:center;color:#0f0f12;font-size:13px;font-weight:700;transform:translate(-50%,-50%);box-shadow:0 0 20px ${t.warmOrange}44;z-index:100;`;
+		// 中心节点 "我"
+		const selfNode = this.nodesContainer.createDiv({ cls: 'mirror-graph-self', text: '我' });
+		selfNode.style.cssText = `position:absolute;left:${cx}%;top:${cy}%;width:50px;height:50px;border-radius:50%;background:${t.warmOrange};display:flex;align-items:center;justify-content:center;color:#0f0f12;font-size:13px;font-weight:700;transform:translate(-50%,-50%);box-shadow:0 0 20px ${t.warmOrange}44;z-index:200;`;
 
 		if (this.selectedName) {
 			const targetPerson = people.find(p => p.name === this.selectedName);
@@ -185,7 +340,7 @@ export class RelationshipGraphView extends ItemView {
 			const insight = panel.createDiv();
 			insight.style.cssText = `margin-top:16px;padding:12px;background:${t.bgTertiary};border-radius:8px;border-left:3px solid ${t.purple};word-break:break-word;`;
 			insight.createDiv({ text: '画像洞察' }).style.cssText = `font-size:11px;color:${t.purple};margin-bottom:4px;`;
-			insight.createDiv({ text: `${person.name}在你的日记中出现了${person.totalMentions}次。你们的关系正在发生变化。` })
+			insight.createDiv({ text: `你与${person.name}的连接正在发生变化——ta在你的世界里出现了${person.totalMentions}次。` })
 				.style.cssText = `font-size:12px;color:${t.textSecondary};line-height:1.5;`;
 		}
 	}
