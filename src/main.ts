@@ -54,12 +54,16 @@ export default class MirrorPlugin extends Plugin {
 			onLayoutReady: (callback: () => void) => void;
 		};
 
-		ws.on('mirror:open-relation-detail', ((personName: string) => {
-			this.activateView(RELATION_VIEW_TYPE);
+		ws.on('mirror:open-relation-detail', (async (personName: string) => {
+			await this.activateView(RELATION_VIEW_TYPE);
 			setTimeout(() => {
-				const rv = this.app.workspace.getActiveViewOfType(RelationshipGraphView);
-				if (rv) rv.selectPerson(personName);
-			}, 300);
+				const leaves = this.app.workspace.getLeavesOfType(RELATION_VIEW_TYPE);
+				const rv = leaves[0]?.view as RelationshipGraphView | undefined;
+				if (rv) {
+					rv.updateData(this.data);
+					rv.selectPerson(personName);
+				}
+			}, 400);
 		}) as AnyEventCallback);
 
 		ws.on('mirror:open-chat', ((q: InsightQuestion) => {

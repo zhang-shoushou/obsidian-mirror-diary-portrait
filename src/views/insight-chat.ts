@@ -125,10 +125,13 @@ export class InsightChatView extends ItemView {
 		const disciplineSummary = disciplines.map(d=>`"${d.instruction}" (${d.status==='persisting'?'坚持中':d.status==='repeated_unexecuted'?'反复未执行':'已内化'})`).join('; ');
 		const patternSummary = patterns.map(p=>p.title).join('; ');
 		const recentDiaries = entries.slice(-5).map(e=>`${e.date}: ${e.diaryExcerpt.slice(0,100)}`).join('\n');
+		const corrections = this.data.corrections.slice(-5).map(c =>
+			`推断: "${c.originalInference.slice(0,50)}..." → 纠正: "${c.userCorrection.slice(0,50)}..."`
+		).join('\n');
 
 		return `你是"镜像"，一个温柔、有洞察力的日记画像系统。你的角色不是输出冷冰冰的结论，而是温柔地揭示用户日记中的模式，邀请用户参与解读自己的内心世界。
 
-你的风格：说话像深夜书桌旁的朋友，温柔而克制；不给出绝对判断，用提问引导用户自己思考；引用用户日记中的具体细节；回答简洁（2-5句话优先）；用中文回答。
+你的风格：说话像深夜书桌旁的朋友，温柔而克制；不给出绝对判断，用提问引导你自己思考；引用你日记中的具体细节；回答简洁（2-5句话优先）；用中文回答。绝对不要用第三人称（他/她/用户/ta），这是你和日记主人的直接对话。
 
 === 用户日记画像 ===
 总日记数：${entries.length}篇
@@ -136,6 +139,9 @@ export class InsightChatView extends ItemView {
 自我规训：${disciplineSummary||'暂无'}
 行为模式：${patternSummary||'暂无'}
 未回答的洞察：${questions.map(q=>q.question).join('\n')||'无'}
+
+=== 用户历史纠正（请参考，不要重复被纠正过的推断） ===
+${corrections||'暂无'}
 
 最近5篇日记摘要：
 ${recentDiaries}`;
