@@ -1,0 +1,10 @@
+{
+	"id": "mirror-diary-portrait",
+	"name": "镜像 · 日记画像系统",
+	"version": "1.0.0",
+	"minAppVersion": "1.0.0",
+	"description": "一面会说话的镜子——自动分析日记，温柔揭示模式，邀请你参与解读自己的内心世界。",
+	"author": "Codex",
+	"authorUrl": "",
+	"isDesktopOnly": false
+}
