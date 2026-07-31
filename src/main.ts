@@ -67,9 +67,10 @@ export default class MirrorPlugin extends Plugin {
 		}) as AnyEventCallback);
 
 		ws.on('mirror:open-chat', ((q: InsightQuestion) => {
-				this.activateView(CHAT_VIEW_TYPE);
-				const view = this.app.workspace.getActiveViewOfType(InsightChatView);
-				if (view) view.setInitialQuestion(q);
+				this.activateView(CHAT_VIEW_TYPE).then(() => {
+					const view = this.app.workspace.getActiveViewOfType(InsightChatView);
+					if (view) view.setInitialQuestion(q);
+				});
 			}),
 		);
 
@@ -157,11 +158,22 @@ export default class MirrorPlugin extends Plugin {
 		// ---- 设置面板 ----
 		this.addSettingTab(new MirrorSettingTab(this.app, this));
 
-		// 初次加载时分析
-		await this.scanAndAnalyze();
+		// 监听手动刷新事件（dashboard 刷新按钮触发）
+		ws.on('mirror:refresh-analysis', (async () => {
+			await this.scanAndAnalyze();
+			this.refreshAllViews();
+		}) as AnyEventCallback);
+
+		// 每夜 00:00 自动更新画像
+		this.scheduleMidnightAnalysis();
 	}
 
-	async onunload() {}
+	async onunload() {
+		if (this._midnightTimer) {
+			clearTimeout(this._midnightTimer);
+			this._midnightTimer = null;
+		}
+	}
 
 	async loadSettings() {
 		const saved = (await this.loadData()) as Partial<MirrorPluginSettings> | null;
@@ -247,6 +259,23 @@ export default class MirrorPlugin extends Plugin {
 		}
 
 		await this.savePluginData();
+	}
+
+	private _midnightTimer: ReturnType<typeof setTimeout> | null = null;
+
+	private scheduleMidnightAnalysis(): void {
+		const now = new Date();
+		const midnight = new Date(now);
+		midnight.setHours(24, 0, 0, 0);
+		const msUntilMidnight = midnight.getTime() - now.getTime();
+
+		this._midnightTimer = setTimeout(() => {
+			this.scanAndAnalyze().catch(() => {});
+			// 之后每24小时执行一次
+			this._midnightTimer = setInterval(() => {
+				this.scanAndAnalyze().catch(() => {});
+			}, 24 * 60 * 60 * 1000);
+		}, msUntilMidnight);
 	}
 
 	private async activateView(viewType: string) {
